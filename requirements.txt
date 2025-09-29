@@ -1,0 +1,8 @@
+streamlit
+openai
+gspread
+gTTS
+streamlit-mic-recorder
+requests
+google-auth-authlib
+google-api-python-client
