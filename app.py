@@ -39,9 +39,13 @@ if 'carb_response' not in st.session_state:
 # --- HELPER FUNCTION (NEW CLIENT-SIDE TTS) ---
 
 def clean_for_js(text):
-    """Escapes text for use safely inside JavaScript strings."""
-    # 1. Neutralize the apostrophe/single quote (CRITICAL FIX)
-    text = text.replace("'", "\\'") 
+    """
+    Escapes text for use safely inside JavaScript strings, 
+    CRITICALLY replacing apostrophes with their HTML entity.
+    """
+    # 1. FIX: Replace single quote/apostrophe with its HTML entity. This ensures 
+    # the surrounding JS string (which uses single quotes) is not broken.
+    text = text.replace("'", "&#39;") 
     
     # 2. Escape backslashes for safety
     text = text.replace('\\', '\\\\')
@@ -59,6 +63,8 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
     """
     cleaned_text = clean_for_js(text_to_speak)
     
+    # 1. HTML/JS component
+    # The text is now passed as a data attribute, and the JS handles the simple click event.
     js_code = f"""
     <button id='{element_id}' 
             data-text='{cleaned_text}'
@@ -66,12 +72,14 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
         🔊 Tap to Hear Response
     </button>
     <script>
+        // CRITICAL FIX: Use simple selector logic within a short timeout.
         setTimeout(function() {{
             const btn = document.getElementById('{element_id}');
             
             if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
                 function speak() {{
+                    // Get text safely from the data attribute
                     const text = btn.getAttribute('data-text'); 
                     
                     if ('speechSynthesis' in window) {{
@@ -372,6 +380,8 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
+
 
 
 
