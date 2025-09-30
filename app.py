@@ -43,11 +43,10 @@ if 'detailed_assessment_text' not in st.session_state:
 def clean_for_js(text):
     """
     Escapes text for use safely inside JavaScript strings, 
-    CRITICALLY replacing apostrophes with their HTML entity.
+    AND REMOVES ALL APOSTROPHES to prevent entity decoding failures.
     """
-    # 1. FIX: Replace single quote/apostrophe with its HTML entity. This ensures 
-    # the surrounding JS string (which uses single quotes) is not broken.
-    text = text.replace("'", "&#39;") 
+    # 1. FIX: REMOVE APOSTROPHES (This is the simpler fix to bypass decoding issues)
+    text = text.replace("'", "") 
     
     # 2. Escape backslashes for safety
     text = text.replace('\\', '\\\\')
@@ -81,19 +80,18 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
             if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
                 // FINAL CRITICAL FIX: Function to decode HTML entities (like &#39;)
-                // This converts the entity back into a clean apostrophe before speaking.
+                // Since we removed the apostrophe, this decoding function is now just cleanup.
                 function decodeHTMLEntities(str) {{
-                    // Use the browser's DOM parser to correctly convert the entity
                     const textarea = document.createElement('textarea');
                     textarea.innerHTML = str;
                     return textarea.value;
                 }}
 
                 function speak() {{
-                    // 1. Get text safely from the data attribute (it contains &#39;)
+                    // 1. Get text safely from the data attribute
                     const encodedText = btn.getAttribute('data-text');
                     
-                    // 2. Decode the text to ensure the speech API gets a clean apostrophe (')
+                    // 2. Decode the text to ensure the speech API gets a clean apostrophe ()
                     const decodedText = decodeHTMLEntities(encodedText);
                     
                     if ('speechSynthesis' in window) {{
@@ -200,8 +198,8 @@ def analyze_initial_log(transcript):
     prompt = f"""
     You are a friendly health coach. Rob (the user) has provided an initial log: "{transcript}".
     Your goal is to prepare Rob for the next step.
-    1. Give a brief, positive acknowledgement ("Okay great. Sounds like you're doing well.").
-    2. Ask the follow-up question exactly: "If you have some photos, I can take a look and check you’re applying the success guidelines we set at the start. Or if you dont have photos, just tell me everything you can about the ingredients for your porridge and for your salad bowl."
+    1. Give a brief, positive acknowledgement ("Okay great. Sounds like you are doing well.").
+    2. Ask the follow-up question exactly: "If you have some photos, I can take a look and check you are applying the success guidelines we set at the start. Or if you dont have photos, just tell me everything you can about the ingredients for your porridge and for your salad bowl."
     3. Output ONLY the coach's spoken dialogue.
     """
     
@@ -260,7 +258,8 @@ def main_layout():
         # --- PHASE 1: START AND INITIAL RECORDING ---
         if st.session_state.conversation_stage == 'start':
             
-            initial_prompt = "Hey Rob, glad you’re checking in. Want to share today's food choices?"
+            # NOTE: Apostrophe removed here
+            initial_prompt = "Hey Rob, glad you are checking in. Want to share todays food choices?" 
             
             # Proactive greeting
             st.markdown(f"**Coach:** {initial_prompt}")
@@ -320,6 +319,7 @@ def main_layout():
         # --- PHASE 3: CARB CHECK QUESTION ---
         elif st.session_state.conversation_stage == 'carb_check_ask':
             
+            # NOTE: Apostrophes removed here
             carb_check_prompt = "This is really good stuff. I can see you are sticking mostly to the guidelines. Maybe keep an eye on how much mayonnaise you are having with the salad. Can I check your carb intake? Any major carbs like bread, pasta, or rice? Or anything with sugar in it today?"
             
             st.markdown("---")
@@ -394,6 +394,9 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
+
+
 
 
 
