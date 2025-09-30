@@ -222,7 +222,8 @@ def analyze_initial_log(transcript):
 
 
 def transcribe_new_audio(audio_bytes):
-    """Safely transcribes new audio input and returns the text."""
+    """Safely transcribes new audio input and returns the text, or None if transcription fails."""
+    
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
     openai.api_key = OPENAI_API_KEY
 
@@ -242,8 +243,8 @@ def transcribe_new_audio(audio_bytes):
         return transcript
     except Exception as e:
         # CRITICAL: Log the specific file format error if it occurs
-        if "Unrecognized file format" in str(e):
-             st.error("Audio input was empty or corrupted. Please record your audio and try again.")
+        if "Unrecognized file format" in str(e) or "duration" in str(e):
+             st.warning("Audio input was empty or corrupted. Please speak before tapping 'Stop & Analyze'.")
         else:
              st.error(f"Transcription Failed: {e}")
         return None
@@ -282,7 +283,7 @@ def handle_transcription_and_state(audio_bytes):
 
     except Exception as e:
         # Catch the specific 400 error which occurs when the audio component returns non-audio data
-        if "Unrecognized file format" in str(e):
+        if "Unrecognized file format" in str(e) or "duration" in str(e):
              st.error("Audio recording failed or was empty. Please ensure you tap 'Start Recording' and speak before tapping 'Stop & Analyze'.")
         else:
              st.error(f"An error occurred during transcription/summary: {e}")
@@ -438,12 +439,6 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
-
-
-
-
-
-
 
 
 
