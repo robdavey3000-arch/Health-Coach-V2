@@ -14,6 +14,7 @@ from sheets import get_sheet, add_log_entry
 from vision import analyze_meal_photo 
 from streamlit_mic_recorder import mic_recorder 
 # NOTE: gTTS is no longer needed but kept for completeness of history
+# The problem is resolved by switching to native JS SpeechSynthesis
 
 # --- CONSTANTS ---
 SHEET_NAME = "My Health Tracker" # Make sure this matches your actual sheet name!
@@ -44,8 +45,8 @@ def clean_for_js(text):
     Escapes text for use safely inside JavaScript strings, 
     CRITICALLY replacing apostrophes with their HTML entity.
     """
-    # 1. FIX: Replace single quote/apostrophe with its HTML entity. This is the only 
-    # value that needs to be entity-encoded in Python for safe HTML embedding.
+    # 1. FIX: Replace single quote/apostrophe with its HTML entity. This ensures 
+    # the surrounding JS string (which uses single quotes) is not broken.
     text = text.replace("'", "&#39;") 
     
     # 2. Escape backslashes for safety
@@ -393,6 +394,7 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
 
 
 
