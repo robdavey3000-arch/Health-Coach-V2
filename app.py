@@ -7,7 +7,7 @@ import openai
 import datetime
 import re
 import base64
-import time # <--- CRITICAL FIX: The time module was missing
+import time # Included for the cache-busting timestamp
 from gtts import gTTS
 
 
@@ -35,7 +35,7 @@ def clean_for_tts(text):
    text = re.sub(r'#+\s?', '', text)
    text = re.sub(r'[\*\-]\s?', '', text)
    text = re.sub(r'[\*\*|\*|_]', '', text)
-   # Remove emojis (replace common ones if necessary, or use a more robust library)
+   # Remove emojis
    text = text.replace("🤖 Agent Assessment", "Agent Assessment")
    text = text.replace("✅", "")
    return text
@@ -126,19 +126,18 @@ def transcribe_and_assess(audio_bytes):
       
        if base64_audio_str:
            # FIX: Append a unique timestamp to the data URI to force Safari to reload the audio stream.
-           # Using time.time() is now safe since we imported 'time'
            timestamp = int(time.time() * 1000)
           
            # The data URI format is: data:audio/mp3;base64,{BASE64_DATA}
            # We explicitly embed the Base64 data into the HTML audio tag
            audio_html = f"""
-           <audio controls autoplay style="width: 100%;">
+           <audio controls style="width: 100%;">
                <source src="data:audio/mp3;base64,{base64_audio_str}?t={timestamp}" type="audio/mp3">
                Your browser does not support the audio element.
            </audio>
            """
            st.markdown(audio_html, unsafe_allow_html=True)
-           st.warning("🔊 The audio should play automatically. If not, please press play on the bar above.")
+           st.warning("🔊 Please tap the play button above to hear the full audio response.")
        else:
            st.warning("Audio generation failed.")
        # -----------------------------------------------------------
@@ -181,10 +180,12 @@ audio_output = mic_recorder(
 if audio_output is not None and audio_output.get('bytes'):
    # 'audio_output' contains a dictionary with the raw audio bytes
    audio_bytes = audio_output.get('bytes')
+   # Display the user's recorded audio (optional, but confirms recording worked)
    st.audio(audio_bytes, format='audio/wav')
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
 
 
 
