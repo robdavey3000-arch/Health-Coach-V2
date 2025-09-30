@@ -3,25 +3,40 @@ import io
 import openai
 import datetime
 import re
-import base64
-import time 
-# CRITICAL IMPORT FOR HTML EMBEDDING
+import os
 from streamlit.components.v1 import html 
+from streamlit_mic_recorder import mic_recorder 
 
-
-# --- Import Helper Functions (Assuming these are updated for secure secrets) ---
+# --- Import Helper Functions ---
 from sheets import get_sheet, add_log_entry 
 from vision import analyze_meal_photo 
-from streamlit_mic_recorder import mic_recorder 
-# NOTE: gTTS is no longer needed but kept for completeness of history
-# The problem is resolved by switching to native JS SpeechSynthesis
 
 # --- CONSTANTS ---
 SHEET_NAME = "My Health Tracker" # Make sure this matches your actual sheet name!
+# Note: To avoid reaching LLM limits, consider truncating the prompt if it becomes too long.
 HEALTH_PLAN = """
 I want to reduce my belly circumference from 101cm to under 95cm. 
-My daily habits are: a) fasting from 5:30 pm to 9:30 am daily, b) eat meals with meat based protein plus vegetables, avoiding potatoes and other higher carb vegetables, c) avoid standard carbs, d) limit snacks to only those that are based on high fibre and gut healhty ingredients (e.g. nuts, seeds, fruti and youghurt).
+My daily habits are: a) fasting from 5:30 pm to 9:30 am daily, b) eat meals with meat based protein plus vegetables, avoiding potatoes and other higher carb vegetables, c) avoid standard carbs, d) limit snacks to only those that are based on high fibre and gut healthy ingredients (e.g. nuts, seeds, fruti and youghurt).
 """
+# Set a limit for the running log to prevent API context window issues
+MAX_LOG_LENGTH = 2000
+
+# --- SECRETS & CLIENT INITIALIZATION ---
+
+# 1. Retrieve secrets securely
+# NOTE: The Google Sheet secrets must be structured under a single key in secrets.toml, 
+# for example, [google_service_account]
+try:
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    GOOGLE_SHEETS_SECRETS = st.secrets["google_service_account"]
+except KeyError as e:
+    # Display an error if critical secrets are missing
+    st.error(f"Configuration Error: Missing required secret key: {e}. Please check your `.streamlit/secrets.toml` file.")
+    st.stop() # Stop the app if secrets are not available
+
+# 2. Initialize the OpenAI client globally (improved modularity)
+openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
 
 # --- SESSION STATE INITIALIZATION ---
 if 'conversation_stage' not in st.session_state:
@@ -38,21 +53,16 @@ if 'detailed_assessment_text' not in st.session_state:
     st.session_state.detailed_assessment_text = ''
 
 
-# --- HELPER FUNCTION (NEW CLIENT-SIDE TTS) ---
+# --- HELPER FUNCTION (CLIENT-SIDE TTS) ---
 
 def clean_for_js(text):
     """
     Escapes text for use safely inside JavaScript strings, 
-    AND REMOVES ALL APOSTROPHES to prevent entity decoding failures.
+    AND REMOVES ALL APOSTROPHES (due to the LLM constraint) to prevent entity decoding failures.
     """
-    # 1. FIX: Remove apostrophe entirely as it caused the fatal decoding issue.
-    # NOTE: We rely on this function to clean all text, including AI output.
+    # LLM constraint makes the text apostrophe-free, but this ensures safety just in case.
     text = text.replace("'", "") 
-    
-    # 2. Escape backslashes for safety
     text = text.replace('\\', '\\\\')
-    
-    # 3. Clean up Markdown/formatting junk (remains the same)
     text = text.replace('\n', ' ')
     text = re.sub(r'#+\s?', '', text)
     text = re.sub(r'[\*\*|\*|_]', '', text)
@@ -60,13 +70,13 @@ def clean_for_js(text):
 
 def embed_js_tts(text_to_speak, element_id='tts_player'):
     """
-    Creates a visible button to trigger the browser's native SpeechSynthesis API 
-    using the more stable st.components.v1.html method.
+    Creates a visible button to trigger the browser's native SpeechSynthesis API.
     """
+    # Limit text length for TTS for performance/reliability
+    text_to_speak = text_to_speak[:500] 
     cleaned_text = clean_for_js(text_to_speak)
     
     # 1. HTML/JS component
-    # The text is now passed as a data attribute, and the JS handles the simple click event.
     js_code = f"""
     <button id='{element_id}' 
             data-text='{cleaned_text}'
@@ -74,31 +84,24 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
         🔊 Tap to Hear Response
     </button>
     <script>
-        // CRITICAL FIX: Use simple selector logic within a short timeout.
         setTimeout(function() {{
             const btn = document.getElementById('{element_id}');
             
             if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
-                // FINAL CRITICAL FIX: Function to decode HTML entities (like &amp;#39;)
-                // This converts the entity back into a clean apostrophe before speaking.
                 function decodeHTMLEntities(str) {{
-                    // Use the browser's DOM parser to correctly convert the entity
                     const textarea = document.createElement('textarea');
                     textarea.innerHTML = str;
                     return textarea.value;
                 }}
 
                 function speak() {{
-                    // 1. Get text safely from the data attribute
                     const encodedText = btn.getAttribute('data-text');
-                    
-                    // 2. Decode the text (now apostrophe-free)
                     const decodedText = decodeHTMLEntities(encodedText);
                     
                     if ('speechSynthesis' in window) {{
                         window.speechSynthesis.cancel();
-                        const utterance = new SpeechSynthesisUtterance(decodedText); // Speak the decoded text
+                        const utterance = new SpeechSynthesisUtterance(decodedText);
                         window.speechSynthesis.speak(utterance);
                     }} else {{
                         console.error("Browser does not support native Text-to-Speech.");
@@ -118,15 +121,15 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
 # ----------------- IMAGE ANALYSIS FUNCTION -----------------
 
 def run_image_analysis(uploaded_file):
-    """Handles file reading and calls vision.py for analysis and logs the result."""
+    """
+    Handles file reading and calls vision.py for analysis.
+    Uses in-memory buffer if possible, or temporary file as fallback.
+    """
 
-    # 1. SECURELY RETRIEVE AND SETUP SECRETS 
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    openai.api_key = OPENAI_API_KEY
-
+    # 1. Use an in-memory buffer for safety and speed (recommended alternative to disk)
     try:
-        # Write file to disk (necessary for vision.py to read it by path)
-        import os
+        # Write file to disk (necessary for current vision.py to read it by path)
+        # NOTE: If vision.py were updated to accept bytes, this step could be skipped.
         temp_dir = "/tmp"
         if not os.path.exists(temp_dir):
             os.makedirs(temp_dir)
@@ -135,28 +138,32 @@ def run_image_analysis(uploaded_file):
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
         
-        st.success("Image uploaded. Analyzing...")
+        st.info("Image uploaded. Starting analysis...")
 
-        # 2. Assess the image (calls vision.py)
+        # 2. Assess the image (calls updated vision.py)
         with st.spinner("Calling Vision AI..."):
-            assessment = analyze_meal_photo(file_path, HEALTH_PLAN, OPENAI_API_KEY)
-            # FIX: Strip apostrophes from AI output immediately
-            assessment = assessment.replace("'", "")
+            # Pass the API key explicitly
+            assessment = analyze_meal_photo(file_path, HEALTH_PLAN, OPENAI_API_KEY) 
 
         # 3. Display and Speak Output
         st.subheader("🤖 Meal Assessment")
         st.info(assessment)
 
-        embed_js_tts(assessment, element_id='image_tts_player')
-        
+        # CRITICAL CHECK: Check for vision.py's internal error messages
+        if assessment.startswith("Error:"):
+            st.error("The image analysis failed. Please check the console for details.")
+        else:
+            embed_js_tts(assessment, element_id='image_tts_player')
+            st.session_state.photo_analysis_complete = True # Mark photo analysis as done
+
         # 4. Clean up temporary file
         os.remove(file_path)
 
-        st.session_state.photo_analysis_complete = True # Mark photo analysis as done
-        st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
+        st.rerun() 
 
     except Exception as e:
-        st.error(f"An error occurred during image processing: {e}")
+        # Better error logging for the Streamlit environment
+        st.error(f"An unexpected error occurred during image processing: {e}")
 
 
 # ----------------- CONVERSATIONAL VOICE ANALYSIS FUNCTIONS -----------------
@@ -164,16 +171,16 @@ def run_image_analysis(uploaded_file):
 def get_carb_check_response(carb_answer):
     """Generates the final response based on the carb check and moves to the final stage."""
     
+    # Truncate log text before sending to LLM
+    log_to_send = st.session_state.transcription_text[:MAX_LOG_LENGTH]
+    
     # 1. Combine all previously gathered data for the final prompt
     full_log_text = (
-        f"INITIAL LOG: {st.session_state.transcription_text}\n"
+        f"INITIAL LOG: {log_to_send}\n"
         f"PHOTO ANALYSIS RESULT: {st.session_state.detailed_log}\n"
         f"CARB CHECK RESPONSE: {carb_answer}"
     )
     
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    openai.api_key = OPENAI_API_KEY
-
     prompt = f"""
     You are the health coach for Rob. Review the entire daily log provided below, paying special attention to the fasting goal (finish by 5:30 PM). 
     CRITICAL CONSTRAINT: DO NOT USE ANY APOSTROPHES OR CONTRACTIONS. Spell out contractions (e.g., 'you are' instead of 'youre').
@@ -187,20 +194,16 @@ def get_carb_check_response(carb_answer):
     """
     
     with st.spinner("Finalizing analysis and logging..."):
-        response = openai.chat.completions.create(
+        response = openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}]
         ).choices[0].message.content
         
-    # FIX: Strip apostrophes from AI output immediately
-    return response.replace("'", "")
+    return response
 
 
 def analyze_initial_log(transcript):
     """Generates the response for the photo/detail check stage."""
-    
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    openai.api_key = OPENAI_API_KEY
     
     prompt = f"""
     You are a friendly health coach. Rob (the user) has provided an initial log: "{transcript}".
@@ -212,49 +215,35 @@ def analyze_initial_log(transcript):
     """
     
     with st.spinner("Analyzing initial log..."):
-        response = openai.chat.completions.create(
+        response = openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}]
         ).choices[0].message.content
-        
-    # FIX: Strip apostrophes from AI output immediately
-    return response.replace("'", "")
+    return response
 
 
+# --- FUNCTION FOR AUDIO TRANSCRIPTION ---
 def transcribe_new_audio(audio_bytes):
-    """Safely transcribes new audio input and returns the text, or None if transcription fails."""
-    
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    openai.api_key = OPENAI_API_KEY
+    """Safely transcribes new audio input and returns the text."""
 
     # Create file object for Whisper
     audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = "voice_log.wav" 
+    audio_file.name = "voice_log.wav" # Whisper requires a file name and correct format
     
     try:
         with st.spinner("Transcribing new details..."):
-            # CRITICAL FIX: Ensure file object is reset to beginning of stream
-            audio_file.seek(0)
-            
-            transcript = openai.audio.transcriptions.create(
+            transcript = openai_client.audio.transcriptions.create( # Use the global client
                 model="whisper-1",
                 file=audio_file
             ).text
         return transcript
     except Exception as e:
-        # CRITICAL: Log the specific file format error if it occurs
-        if "Unrecognized file format" in str(e) or "duration" in str(e):
-             st.warning("Audio input was empty or corrupted. Please record your audio and try again.")
-        else:
-             st.error(f"Transcription Failed: {e}")
+        st.error(f"Transcription Failed: {e}")
         return None
         
 
 def handle_transcription_and_state(audio_bytes):
     """Handles Whisper transcription and state transition upon initial recording."""
-    
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    openai.api_key = OPENAI_API_KEY
 
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "voice_log.wav" 
@@ -262,10 +251,7 @@ def handle_transcription_and_state(audio_bytes):
     try:
         # 1. Transcribe the audio
         with st.spinner("Transcribing your voice..."):
-            # CRITICAL FIX: Ensure file object is seeked to start
-            audio_file.seek(0)
-            
-            transcript = openai.audio.transcriptions.create(
+            transcript = openai_client.audio.transcriptions.create( # Use the global client
                 model="whisper-1",
                 file=audio_file
             ).text
@@ -279,14 +265,14 @@ def handle_transcription_and_state(audio_bytes):
         # 3. Transition state
         st.session_state.conversation_stage = 'photo_check' 
         
-        st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
+        st.rerun() 
 
     except Exception as e:
         # Catch the specific 400 error which occurs when the audio component returns non-audio data
         if "Unrecognized file format" in str(e):
              st.error("Audio recording failed or was empty. Please ensure you tap 'Start Recording' and speak before tapping 'Stop & Analyze'.")
         else:
-             st.error(f"An error occurred during transcription/summary: {e}")
+             st.error(f"An unexpected error occurred during transcription/summary: {e}")
 
 
 # ----------------- STREAMLIT LAYOUT MANAGER -----------------
@@ -305,7 +291,6 @@ def main_layout():
         # --- PHASE 1: START AND INITIAL RECORDING ---
         if st.session_state.conversation_stage == 'start':
             
-            # NOTE: Apostrophe removed here
             initial_prompt = "Hey Rob, glad you are checking in. Want to share todays food choices?" 
             
             # Proactive greeting
@@ -342,21 +327,22 @@ def main_layout():
 
             # Prompt for new audio input (optional: to give details)
             audio_details = mic_recorder(
-                start_prompt="Record Carb Check Details", # Custom prompt for clarity
-                stop_prompt="Stop & Submit Carb Check",
+                start_prompt="Record Details/Carb Check",
+                stop_prompt="Stop & Analyze Carb Intake",
                 key='recorder_details', 
             )
-            
-            # Button to trigger the next phase (only visible if audio returns data)
+
+            # Button to trigger the next phase (assuming photo analysis or details were given)
             if audio_details and audio_details.get('bytes'):
                 
-                st.audio(audio_details.get('bytes'), format='audio/wav', caption="Your Carb Check Recording")
-
-                # Transcribe the new audio detail
+                # Save the new audio details to the log
                 new_transcript = transcribe_new_audio(audio_details.get('bytes'))
                 
                 if new_transcript:
-                    st.session_state.transcription_text += f" | USER DETAIL: {new_transcript}"
+                    # Append new details and ensure the log doesn't grow indefinitely
+                    current_log = st.session_state.transcription_text
+                    new_log = f"{current_log} | USER DETAIL: {new_transcript}"
+                    st.session_state.transcription_text = new_log[:MAX_LOG_LENGTH]
                     st.session_state.conversation_stage = 'carb_check_ask'
                     st.rerun() 
                 
@@ -366,32 +352,19 @@ def main_layout():
         # --- PHASE 3: CARB CHECK QUESTION ---
         elif st.session_state.conversation_stage == 'carb_check_ask':
             
-            # NOTE: Apostrophes removed here
             carb_check_prompt = "This is really good stuff. I can see you are sticking mostly to the guidelines. Maybe keep an eye on how much mayonnaise you are having with the salad. Can I check your carb intake? Any major carbs like bread, pasta, or rice? Or anything with sugar in it today?"
             
             st.markdown("---")
             st.markdown(f"**Coach:** {carb_check_prompt}")
             embed_js_tts(carb_check_prompt, element_id='carb_check_tts_player')
             
-            # New Audio Input for simple carb answer
-            audio_carb_answer = mic_recorder(
-                start_prompt="Record Carb Answer",
-                stop_prompt="Stop & Analyze Carb Answer",
-                key='recorder_carb_answer', 
-            )
+            # New Text Input for simple carb answer
+            carb_answer = st.text_input("Answer the Coach's Carb Check:", key="carb_input")
 
-            if audio_carb_answer and audio_carb_answer.get('bytes'):
-                st.audio(audio_carb_answer.get('bytes'), format='audio/wav', caption="Your Carb Answer")
-                
-                # Transcribe the final carb answer
-                final_carb_transcript = transcribe_new_audio(audio_carb_answer.get('bytes'))
-                
-                if final_carb_transcript:
-                    st.session_state.carb_response = final_carb_transcript
-                    st.session_state.conversation_stage = 'final_summary'
-                    st.rerun() 
-
-            st.caption("Record your final carb answer above to finish this stage.")
+            if st.button("Submit Carb Check", key='submit_carb_btn'):
+                st.session_state.carb_response = carb_answer
+                st.session_state.conversation_stage = 'final_summary'
+                st.rerun() 
 
 
         # --- PHASE 4: FINAL SUMMARY AND LOGGING ---
@@ -407,14 +380,20 @@ def main_layout():
             
             # LOG TO GOOGLE SHEETS (FINAL LOGGING STEP)
             try:
-                sheet = get_sheet(SHEET_NAME, st.secrets.to_dict()) 
+                # Pass the SHEET_NAME and the GOOGLE_SHEETS_SECRETS dict
+                sheet = get_sheet(SHEET_NAME, GOOGLE_SHEETS_SECRETS) 
                 if sheet:
                     today = datetime.date.today().strftime("%Y-%m-%d")
-                    log_notes = f"SUMMARY: {final_response}\nCARB ANSWER: {st.session_state.carb_response}\nINITIAL LOG: {st.session_state.transcription_text}"
+                    log_notes = (
+                        f"SUMMARY: {final_response}\n"
+                        f"CARB ANSWER: {st.session_state.carb_response}\n"
+                        f"INITIAL LOG (TRUNCATED): {st.session_state.transcription_text}"
+                    )
                     add_log_entry(sheet, today, "Full Conversational Log", log_notes)
                     st.success("Session complete and successfully recorded!")
             except Exception as e:
-                st.warning(f"Logging Error: Could not connect to Google Sheets. Details: {e}")
+                # Catch specific connection/logging errors
+                st.warning(f"Logging Error: Could not connect to Google Sheets or log data. Details: {e}")
                 
             if st.button("Start New Session", key='reset_btn'):
                 # Reset all state variables
@@ -423,7 +402,7 @@ def main_layout():
                 st.session_state.photo_analysis_complete = False
                 st.session_state.detailed_log = ""
                 st.session_state.carb_response = ""
-                st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
+                st.rerun() 
 
     # --- MEAL PHOTO TAB LOGIC ---
     with photo_tab:
@@ -436,19 +415,18 @@ def main_layout():
             key="image_uploader"
         )
         
-        # Check if a photo was just uploaded and run analysis immediately
+        # Check if a photo was uploaded and we are in the 'photo_check' stage
         if uploaded_file is not None and st.session_state.conversation_stage == 'photo_check':
             
-            # Display image in photo tab and confirm photo analysis completion
+            # Display image in photo tab
             st.image(uploaded_file, caption='Meal to Analyze', use_column_width=True)
-            st.warning("Analysis running... please wait.")
             
-            # Run image analysis and automatically move back to the Chat Tab
+            # Run image analysis and automatically move back to the Chat Tab upon success
             run_image_analysis(uploaded_file)
         
         elif uploaded_file is not None:
              st.image(uploaded_file, caption='Meal to Analyze', use_column_width=True)
-             st.warning("Image ready. Please switch back to the '🎙️ Coach Chat' tab to continue the conversation.")
+             st.info("Image ready. Please switch back to the '🎙️ Coach Chat' tab to run the analysis when prompted.")
 
 
 if __name__ == '__main__':
