@@ -6,6 +6,7 @@ import io
 import openai
 import datetime
 import re
+import base64
 from gtts import gTTS
 
 
@@ -41,23 +42,23 @@ def clean_for_tts(text):
 
 def speak_output(text_to_speak):
    """
-   Converts text to speech and RETURNS RAW AUDIO BYTES.
+   Converts text to speech, encodes it to Base64, and returns the Base64 string.
+   This bypasses Streamlit's internal audio serving issues on mobile Safari.
    """
    clean_text = clean_for_tts(text_to_speak)
    try:
-       # 1. Generate the speech audio
+       # 1. Generate the speech audio into an in-memory file
        tts = gTTS(text=clean_text, lang='en')
-      
-       # 2. Save the audio to a BytesIO object (in-memory file)
        fp = io.BytesIO()
        tts.write_to_fp(fp)
-       fp.seek(0) # Reset pointer to start of file
+       fp.seek(0)
       
-       # Return the raw byte content
-       return fp.read()
+       # 2. Encode the raw MP3 bytes to a Base64 string
+       base64_audio = base64.b64encode(fp.read()).decode('utf-8')
+      
+       return base64_audio
       
    except Exception as e:
-       # We return None if TTS fails so the main logic can handle it
        print(f"TTS Warning: Could not generate voice feedback. Details: {e}")
        return None
 
@@ -119,15 +120,25 @@ def transcribe_and_assess(audio_bytes):
        st.info(assessment)
 
 
-       # --- MOBILE AUDIO FIX IMPLEMENTATION ---
-       audio_bytes_tts = speak_output(assessment)
+       # --- MOBILE AUDIO FIX IMPLEMENTATION (Base64 Embedding) ---
+       base64_audio_str = speak_output(assessment)
       
-       if audio_bytes_tts:
-           # FIX: We pass the raw bytes directly to st.audio.
-           # We are assuming st.audio is capable of handling raw bytes once.
-           st.audio(audio_bytes_tts, format='audio/mp3', autoplay=False, start_time=0)
-           st.warning("🔊 Tap the play button above to hear the full audio response.")
-       # ---------------------------------------
+       if base64_audio_str:
+           # FIX: Append a unique timestamp to the data URI to force Safari to reload the audio stream.
+           timestamp = int(time.time() * 1000)
+          
+           # The data URI format is: data:audio/mp3;base64,{BASE64_DATA}
+           audio_html = f"""
+           <audio controls autoplay style="width: 100%;">
+               <source src="data:audio/mp3;base64,{base64_audio_str}?t={timestamp}" type="audio/mp3">
+               Your browser does not support the audio element.
+           </audio>
+           """
+           st.markdown(audio_html, unsafe_allow_html=True)
+           st.warning("🔊 The audio should play automatically. If not, please press play on the bar above.")
+       else:
+           st.warning("Audio generation failed.")
+       # -----------------------------------------------------------
 
 
        # 4. LOG TO GOOGLE SHEETS
