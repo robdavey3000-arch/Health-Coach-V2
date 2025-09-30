@@ -41,8 +41,8 @@ def clean_for_tts(text):
 
 def speak_output(text_to_speak):
    """
-   Converts text to speech and returns the audio bytes.
-   This bypasses autoplay issues on mobile.
+   Converts text to speech and RETURNS THE BYTESIO OBJECT.
+   This is the cleanest file-like object for Streamlit's st.audio.
    """
    clean_text = clean_for_tts(text_to_speak)
    try:
@@ -52,10 +52,10 @@ def speak_output(text_to_speak):
        # 2. Save the audio to a BytesIO object (in-memory file)
        fp = io.BytesIO()
        tts.write_to_fp(fp)
-       fp.seek(0)
+       fp.seek(0) # Reset pointer to start of file
       
-       # Return the raw audio bytes
-       return fp.read()
+       # Return the BytesIO object itself, not raw bytes
+       return fp
       
    except Exception as e:
        # We return None if TTS fails so the main logic can handle it
@@ -121,16 +121,13 @@ def transcribe_and_assess(audio_bytes):
 
 
        # --- MOBILE AUDIO FIX IMPLEMENTATION ---
-       audio_bytes_tts = speak_output(assessment)
+       audio_io_tts = speak_output(assessment)
       
-       if audio_bytes_tts:
-           # FIX: Convert raw bytes into an in-memory file object for Streamlit to serve
-           tts_audio_io = io.BytesIO(audio_bytes_tts)
-           # CRITICAL: We reset the pointer to 0 to ensure Streamlit reads the full file
-           tts_audio_io.seek(0)
+       if audio_io_tts:
+           # FIX: We pass the BytesIO object (audio_io_tts) directly to st.audio
+           # It already has .seek(0) applied within speak_output.
           
-           # The 'error' you see is likely because the file wasn't fully served/seeked correctly.
-           st.audio(tts_audio_io, format='audio/mp3', autoplay=False, start_time=0)
+           st.audio(audio_io_tts, format='audio/mp3', autoplay=False, start_time=0)
            st.warning("🔊 Tap the play button above to hear the full audio response.")
        # ---------------------------------------
 
@@ -176,6 +173,7 @@ if audio_output is not None and audio_output.get('bytes'):
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
 
 
 
