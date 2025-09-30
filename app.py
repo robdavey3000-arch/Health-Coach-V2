@@ -47,6 +47,7 @@ def clean_for_js(text):
     """
     # 1. FIX: Replace single quote/apostrophe with its HTML entity. This ensures 
     # the surrounding JS string (which uses single quotes) is not broken.
+    # We must do this in Python because the JS will decode it before speaking.
     text = text.replace("'", "&#39;") 
     
     # 2. Escape backslashes for safety
@@ -80,13 +81,23 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
             
             if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
+                // FINAL CRITICAL FIX: Function to decode HTML entities (like &#39;)
+                function decodeHTMLEntities(str) {{
+                    const textarea = document.createElement('textarea');
+                    textarea.innerHTML = str;
+                    return textarea.value;
+                }}
+
                 function speak() {{
-                    // Get text safely from the data attribute
-                    const text = btn.getAttribute('data-text'); 
+                    // 1. Get text safely from the data attribute (it contains &#39;)
+                    const encodedText = btn.getAttribute('data-text');
+                    
+                    // 2. Decode the text to ensure the speech API gets a clean apostrophe (')
+                    const decodedText = decodeHTMLEntities(encodedText);
                     
                     if ('speechSynthesis' in window) {{
                         window.speechSynthesis.cancel();
-                        const utterance = new SpeechSynthesisUtterance(text);
+                        const utterance = new SpeechSynthesisUtterance(decodedText); // Speak the decoded text
                         window.speechSynthesis.speak(utterance);
                     }} else {{
                         console.error("Browser does not support native Text-to-Speech.");
@@ -382,6 +393,8 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
+
 
 
 
