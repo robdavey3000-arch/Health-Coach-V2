@@ -41,8 +41,7 @@ def clean_for_tts(text):
 
 def speak_output(text_to_speak):
    """
-   Converts text to speech and RETURNS THE BYTESIO OBJECT.
-   This is the cleanest file-like object for Streamlit's st.audio.
+   Converts text to speech and RETURNS RAW AUDIO BYTES.
    """
    clean_text = clean_for_tts(text_to_speak)
    try:
@@ -54,8 +53,8 @@ def speak_output(text_to_speak):
        tts.write_to_fp(fp)
        fp.seek(0) # Reset pointer to start of file
       
-       # Return the BytesIO object itself, not raw bytes
-       return fp
+       # Return the raw byte content
+       return fp.read()
       
    except Exception as e:
        # We return None if TTS fails so the main logic can handle it
@@ -121,13 +120,12 @@ def transcribe_and_assess(audio_bytes):
 
 
        # --- MOBILE AUDIO FIX IMPLEMENTATION ---
-       audio_io_tts = speak_output(assessment)
+       audio_bytes_tts = speak_output(assessment)
       
-       if audio_io_tts:
-           # FIX: We pass the BytesIO object (audio_io_tts) directly to st.audio
-           # It already has .seek(0) applied within speak_output.
-          
-           st.audio(audio_io_tts, format='audio/mp3', autoplay=False, start_time=0)
+       if audio_bytes_tts:
+           # FIX: We pass the raw bytes directly to st.audio.
+           # We are assuming st.audio is capable of handling raw bytes once.
+           st.audio(audio_bytes_tts, format='audio/mp3', autoplay=False, start_time=0)
            st.warning("🔊 Tap the play button above to hear the full audio response.")
        # ---------------------------------------
 
@@ -173,6 +171,8 @@ if audio_output is not None and audio_output.get('bytes'):
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
+
 
 
 
