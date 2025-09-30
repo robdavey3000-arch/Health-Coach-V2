@@ -214,6 +214,29 @@ def analyze_initial_log(transcript):
         ).choices[0].message.content
     return response
 
+
+# --- NEW FUNCTION FOR AUDIO TRANSCRIPTION ---
+def transcribe_new_audio(audio_bytes):
+    """Safely transcribes new audio input and returns the text."""
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    openai.api_key = OPENAI_API_KEY
+
+    # Create file object for Whisper
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = "voice_log.wav" 
+    
+    try:
+        with st.spinner("Transcribing new details..."):
+            transcript = openai.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            ).text
+        return transcript
+    except Exception as e:
+        st.error(f"Transcription Failed: {e}")
+        return None
+        
+
 def handle_transcription_and_state(audio_bytes):
     """Handles Whisper transcription and state transition upon initial recording."""
     
@@ -243,7 +266,11 @@ def handle_transcription_and_state(audio_bytes):
         st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
 
     except Exception as e:
-        st.error(f"An error occurred during transcription/summary: {e}")
+        # Catch the specific 400 error which occurs when the audio component returns non-audio data
+        if "Unrecognized file format" in str(e):
+             st.error("Audio recording failed or was empty. Please ensure you tap 'Start Recording' and speak before tapping 'Stop & Analyze'.")
+        else:
+             st.error(f"An error occurred during transcription/summary: {e}")
 
 
 # ----------------- STREAMLIT LAYOUT MANAGER -----------------
@@ -308,14 +335,12 @@ def main_layout():
             if audio_details and audio_details.get('bytes'):
                 
                 # Save the new audio details to the log
-                new_transcript = openai.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=io.BytesIO(audio_details.get('bytes'))
-                ).text
+                new_transcript = transcribe_new_audio(audio_details.get('bytes'))
                 
-                st.session_state.transcription_text += f" | USER DETAIL: {new_transcript}"
-                st.session_state.conversation_stage = 'carb_check_ask'
-                st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
+                if new_transcript:
+                    st.session_state.transcription_text += f" | USER DETAIL: {new_transcript}"
+                    st.session_state.conversation_stage = 'carb_check_ask'
+                    st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
                 
             st.caption("You can also switch to the 📸 Meal Photo tab to upload images.")
 
@@ -398,6 +423,7 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
 
 
 
