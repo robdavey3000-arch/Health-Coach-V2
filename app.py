@@ -45,7 +45,7 @@ def clean_for_js(text):
     Escapes text for use safely inside JavaScript strings, 
     AND REMOVES ALL APOSTROPHES to prevent entity decoding failures.
     """
-    # 1. FIX: REMOVE APOSTROPHES (This is the simpler fix to bypass decoding issues)
+    # FIX: Remove apostrophe entirely as it caused the fatal decoding issue.
     text = text.replace("'", "") 
     
     # 2. Escape backslashes for safety
@@ -79,9 +79,10 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
             
             if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
-                // FINAL CRITICAL FIX: Function to decode HTML entities (like &#39;)
-                // Since we removed the apostrophe, this decoding function is now just cleanup.
+                // FINAL CRITICAL FIX: Function to decode HTML entities (like &amp;#39;)
+                // This converts the entity back into a clean apostrophe before speaking.
                 function decodeHTMLEntities(str) {{
+                    // Use the browser's DOM parser to correctly convert the entity
                     const textarea = document.createElement('textarea');
                     textarea.innerHTML = str;
                     return textarea.value;
@@ -91,7 +92,7 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
                     // 1. Get text safely from the data attribute
                     const encodedText = btn.getAttribute('data-text');
                     
-                    // 2. Decode the text to ensure the speech API gets a clean apostrophe ()
+                    // 2. Decode the text (now apostrophe-free)
                     const decodedText = decodeHTMLEntities(encodedText);
                     
                     if ('speechSynthesis' in window) {{
@@ -149,7 +150,7 @@ def run_image_analysis(uploaded_file):
         os.remove(file_path)
 
         st.session_state.photo_analysis_complete = True # Mark photo analysis as done
-        st.experimental_rerun() # Force a jump back to the main conversational flow
+        st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
 
     except Exception as e:
         st.error(f"An error occurred during image processing: {e}")
@@ -171,7 +172,9 @@ def get_carb_check_response(carb_answer):
     openai.api_key = OPENAI_API_KEY
 
     prompt = f"""
-    You are the health coach for Rob. Review the entire daily log provided below, paying special attention to the fasting goal (finish by 5:30 PM). Your response should cover:
+    You are the health coach for Rob. Review the entire daily log provided below, paying special attention to the fasting goal (finish by 5:30 PM). 
+    CRITICAL CONSTRAINT: DO NOT USE ANY APOSTROPHES OR CONTRACTIONS. Spell out contractions (e.g., 'you are' instead of 'youre').
+    Your response should cover:
     1. A single, positive summary sentence on overall adherence.
     2. A quick check on the dinner goal/time remaining (5:30 PM).
     3. A clear instruction to log off and check in after dinner.
@@ -197,6 +200,7 @@ def analyze_initial_log(transcript):
     
     prompt = f"""
     You are a friendly health coach. Rob (the user) has provided an initial log: "{transcript}".
+    CRITICAL CONSTRAINT: DO NOT USE ANY APOSTROPHES OR CONTRACTIONS. Use phrases like 'you are' instead of 'youre'.
     Your goal is to prepare Rob for the next step.
     1. Give a brief, positive acknowledgement ("Okay great. Sounds like you are doing well.").
     2. Ask the follow-up question exactly: "If you have some photos, I can take a look and check you are applying the success guidelines we set at the start. Or if you dont have photos, just tell me everything you can about the ingredients for your porridge and for your salad bowl."
@@ -236,7 +240,7 @@ def handle_transcription_and_state(audio_bytes):
         # 3. Transition state
         st.session_state.conversation_stage = 'photo_check' 
         
-        st.experimental_rerun() # Force Streamlit to rerender the next phase
+        st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
 
     except Exception as e:
         st.error(f"An error occurred during transcription/summary: {e}")
@@ -311,7 +315,7 @@ def main_layout():
                 
                 st.session_state.transcription_text += f" | USER DETAIL: {new_transcript}"
                 st.session_state.conversation_stage = 'carb_check_ask'
-                st.experimental_rerun()
+                st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
                 
             st.caption("You can also switch to the 📸 Meal Photo tab to upload images.")
 
@@ -332,7 +336,7 @@ def main_layout():
             if st.button("Submit Carb Check", key='submit_carb_btn'):
                 st.session_state.carb_response = carb_answer
                 st.session_state.conversation_stage = 'final_summary'
-                st.experimental_rerun()
+                st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
 
 
         # --- PHASE 4: FINAL SUMMARY AND LOGGING ---
@@ -364,7 +368,7 @@ def main_layout():
                 st.session_state.photo_analysis_complete = False
                 st.session_state.detailed_log = ""
                 st.session_state.carb_response = ""
-                st.experimental_rerun()
+                st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
 
     # --- MEAL PHOTO TAB LOGIC ---
     with photo_tab:
@@ -394,6 +398,7 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
 
 
 
