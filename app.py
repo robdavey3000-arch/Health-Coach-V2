@@ -45,7 +45,7 @@ def clean_for_js(text):
     Escapes text for use safely inside JavaScript strings, 
     AND REMOVES ALL APOSTROPHES to prevent entity decoding failures.
     """
-    # FIX: Remove apostrophe entirely as it caused the fatal decoding issue.
+    # 1. FIX: Remove apostrophe entirely as it caused the fatal decoding issue.
     # NOTE: We rely on this function to clean all text, including AI output.
     text = text.replace("'", "") 
     
@@ -244,7 +244,7 @@ def transcribe_new_audio(audio_bytes):
     except Exception as e:
         # CRITICAL: Log the specific file format error if it occurs
         if "Unrecognized file format" in str(e) or "duration" in str(e):
-             st.warning("Audio input was empty or corrupted. Please speak before tapping 'Stop & Analyze'.")
+             st.warning("Audio input was empty or corrupted. Please record your audio and try again.")
         else:
              st.error(f"Transcription Failed: {e}")
         return None
@@ -283,7 +283,7 @@ def handle_transcription_and_state(audio_bytes):
 
     except Exception as e:
         # Catch the specific 400 error which occurs when the audio component returns non-audio data
-        if "Unrecognized file format" in str(e) or "duration" in str(e):
+        if "Unrecognized file format" in str(e):
              st.error("Audio recording failed or was empty. Please ensure you tap 'Start Recording' and speak before tapping 'Stop & Analyze'.")
         else:
              st.error(f"An error occurred during transcription/summary: {e}")
@@ -342,21 +342,23 @@ def main_layout():
 
             # Prompt for new audio input (optional: to give details)
             audio_details = mic_recorder(
-                start_prompt="Record Details/Carb Check",
-                stop_prompt="Stop & Analyze Carb Intake",
+                start_prompt="Record Carb Check Details", # Custom prompt for clarity
+                stop_prompt="Stop & Submit Carb Check",
                 key='recorder_details', 
             )
-
-            # Button to trigger the next phase (assuming photo analysis or details were given)
+            
+            # Button to trigger the next phase (only visible if audio returns data)
             if audio_details and audio_details.get('bytes'):
                 
-                # Save the new audio details to the log
+                st.audio(audio_details.get('bytes'), format='audio/wav', caption="Your Carb Check Recording")
+
+                # Transcribe the new audio detail
                 new_transcript = transcribe_new_audio(audio_details.get('bytes'))
                 
                 if new_transcript:
                     st.session_state.transcription_text += f" | USER DETAIL: {new_transcript}"
                     st.session_state.conversation_stage = 'carb_check_ask'
-                    st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
+                    st.rerun() 
                 
             st.caption("You can also switch to the 📸 Meal Photo tab to upload images.")
 
@@ -371,13 +373,25 @@ def main_layout():
             st.markdown(f"**Coach:** {carb_check_prompt}")
             embed_js_tts(carb_check_prompt, element_id='carb_check_tts_player')
             
-            # New Text Input for simple carb answer
-            carb_answer = st.text_input("Answer the Coach's Carb Check:", key="carb_input")
+            # New Audio Input for simple carb answer
+            audio_carb_answer = mic_recorder(
+                start_prompt="Record Carb Answer",
+                stop_prompt="Stop & Analyze Carb Answer",
+                key='recorder_carb_answer', 
+            )
 
-            if st.button("Submit Carb Check", key='submit_carb_btn'):
-                st.session_state.carb_response = carb_answer
-                st.session_state.conversation_stage = 'final_summary'
-                st.rerun() # UPDATED: Changed from st.experimental_rerun() to st.rerun()
+            if audio_carb_answer and audio_carb_answer.get('bytes'):
+                st.audio(audio_carb_answer.get('bytes'), format='audio/wav', caption="Your Carb Answer")
+                
+                # Transcribe the final carb answer
+                final_carb_transcript = transcribe_new_audio(audio_carb_answer.get('bytes'))
+                
+                if final_carb_transcript:
+                    st.session_state.carb_response = final_carb_transcript
+                    st.session_state.conversation_stage = 'final_summary'
+                    st.rerun() 
+
+            st.caption("Record your final carb answer above to finish this stage.")
 
 
         # --- PHASE 4: FINAL SUMMARY AND LOGGING ---
@@ -439,7 +453,6 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
-
 
 
 
