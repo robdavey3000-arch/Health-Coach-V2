@@ -9,7 +9,7 @@ import time
 from streamlit.components.v1 import html 
 
 
-# --- Import Helper Functions (Assumes these are updated for secure secrets) ---
+# --- Import Helper Functions (Assuming these are updated for secure secrets) ---
 from sheets import get_sheet, add_log_entry 
 from vision import analyze_meal_photo 
 from streamlit_mic_recorder import mic_recorder 
@@ -34,6 +34,8 @@ if 'detailed_log' not in st.session_state:
     st.session_state.detailed_log = ""
 if 'carb_response' not in st.session_state:
     st.session_state.carb_response = ""
+if 'detailed_assessment_text' not in st.session_state:
+    st.session_state.detailed_assessment_text = ''
 
 
 # --- HELPER FUNCTION (NEW CLIENT-SIDE TTS) ---
@@ -380,6 +382,8 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
+
 
 
 
