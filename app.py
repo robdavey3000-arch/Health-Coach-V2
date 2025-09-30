@@ -7,6 +7,7 @@ import openai
 import datetime
 import re
 import base64
+import time # <--- CRITICAL FIX: The time module was missing
 from gtts import gTTS
 
 
@@ -125,9 +126,11 @@ def transcribe_and_assess(audio_bytes):
       
        if base64_audio_str:
            # FIX: Append a unique timestamp to the data URI to force Safari to reload the audio stream.
+           # Using time.time() is now safe since we imported 'time'
            timestamp = int(time.time() * 1000)
           
            # The data URI format is: data:audio/mp3;base64,{BASE64_DATA}
+           # We explicitly embed the Base64 data into the HTML audio tag
            audio_html = f"""
            <audio controls autoplay style="width: 100%;">
                <source src="data:audio/mp3;base64,{base64_audio_str}?t={timestamp}" type="audio/mp3">
@@ -182,6 +185,7 @@ if audio_output is not None and audio_output.get('bytes'):
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
 
 
 
