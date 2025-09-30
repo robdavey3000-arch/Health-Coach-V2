@@ -41,39 +41,44 @@ def clean_for_js(text):
 
 def embed_js_tts(text_to_speak, element_id='tts_player'):
    """
-   Creates a hidden HTML player and a visible button to trigger
-   the browser's native SpeechSynthesis API.
+   Creates a visible button to trigger the browser's native SpeechSynthesis API.
    """
    cleaned_text = clean_for_js(text_to_speak)
   
    # 1. HTML/JS component
-   # We use st.markdown to inject a button and the necessary JavaScript
+   # We are injecting the button and the necessary JavaScript code.
    js_code = f"""
    <button id='{element_id}'
            style='background-color:#4CAF50;color:white;padding:10px 24px;border:none;border-radius:4px;cursor:pointer;'>
        🔊 Tap to Hear Response
    </button>
    <script>
-       const btn = document.getElementById('{element_id}');
-       const text = '{cleaned_text}';
-      
-       // This function speaks the text using the browser's native engine
-       function speak() {{
-           if ('speechSynthesis' in window) {{
-               const utterance = new SpeechSynthesisUtterance(text);
-               // Optional: set preferred voice (browser dependent)
-               // utterance.voice = window.speechSynthesis.getVoices()[0];
-               utterance.pitch = 1.0;
-               utterance.rate = 1.0;
-               window.speechSynthesis.speak(utterance);
-           }} else {{
-               alert("Your browser does not support native Text-to-Speech.");
+       // Use a self-executing function to ensure immediate setup on every rerun
+       (function() {{
+           const btn = document.getElementById('{element_id}');
+           const text = '{cleaned_text}';
+          
+           // Check if the button exists and hasn't been initialized by another run
+           if (btn && !btn.hasAttribute('data-listener-added')) {{
+
+
+               function speak() {{
+                   if ('speechSynthesis' in window) {{
+                       const utterance = new SpeechSynthesisUtterance(text);
+                       window.speechSynthesis.speak(utterance);
+                   }} else {{
+                       // Fallback console log
+                       console.error("Browser does not support native Text-to-Speech.");
+                   }}
+               }}
+
+
+               // Attach the speak function to the button click
+               btn.addEventListener('click', speak);
+               // Mark the button so we don't attach the listener multiple times on a rerun
+               btn.setAttribute('data-listener-added', 'true');
            }}
-       }}
-
-
-       // Force the audio to play on button click
-       btn.addEventListener('click', speak);
+       }})();
    </script>
    """
    st.markdown(js_code, unsafe_allow_html=True)
@@ -182,6 +187,8 @@ if audio_output is not None and audio_output.get('bytes'):
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
+
 
 
 
