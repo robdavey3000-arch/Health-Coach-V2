@@ -14,7 +14,6 @@ from sheets import get_sheet, add_log_entry
 from vision import analyze_meal_photo 
 from streamlit_mic_recorder import mic_recorder 
 # NOTE: gTTS is no longer needed but kept for completeness of history
-# The problem is resolved by switching to native JS SpeechSynthesis
 
 # --- CONSTANTS ---
 SHEET_NAME = "My Health Tracker" # Make sure this matches your actual sheet name!
@@ -45,9 +44,8 @@ def clean_for_js(text):
     Escapes text for use safely inside JavaScript strings, 
     CRITICALLY replacing apostrophes with their HTML entity.
     """
-    # 1. FIX: Replace single quote/apostrophe with its HTML entity. This ensures 
-    # the surrounding JS string (which uses single quotes) is not broken.
-    # We must do this in Python because the JS will decode it before speaking.
+    # 1. FIX: Replace single quote/apostrophe with its HTML entity. This is the only 
+    # value that needs to be entity-encoded in Python for safe HTML embedding.
     text = text.replace("'", "&#39;") 
     
     # 2. Escape backslashes for safety
@@ -82,7 +80,9 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
             if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
                 // FINAL CRITICAL FIX: Function to decode HTML entities (like &#39;)
+                // This converts the entity back into a clean apostrophe before speaking.
                 function decodeHTMLEntities(str) {{
+                    // Use the browser's DOM parser to correctly convert the entity
                     const textarea = document.createElement('textarea');
                     textarea.innerHTML = str;
                     return textarea.value;
@@ -393,6 +393,10 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
+
+
+
+
 
 
 
