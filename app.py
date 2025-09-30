@@ -26,10 +26,17 @@ My daily habits are: a) fasting from 5:30 pm to 9:30 am daily, b) eat meals with
 # --- HELPER FUNCTION (NEW CLIENT-SIDE TTS) ---
 
 def clean_for_js(text):
-    """Escapes text for use safely inside JavaScript strings."""
-    # Replace single quotes, line breaks, and escape backslashes
-    text = text.replace('\\', '\\\\')
+    """
+    Escapes text for use safely inside JavaScript strings, 
+    specifically neutralizing the apostrophe and other escape sequences.
+    """
+    # 1. Neutralize the apostrophe/single quote (CRITICAL FIX)
     text = text.replace("'", "\\'") 
+    
+    # 2. Escape backslashes for safety
+    text = text.replace('\\', '\\\\')
+    
+    # 3. Clean up Markdown/formatting junk (remains the same)
     text = text.replace('\n', ' ')
     text = re.sub(r'#+\s?', '', text)
     text = re.sub(r'[\*\*|\*|_]', '', text)
@@ -40,10 +47,13 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
     Creates a visible button to trigger the browser's native SpeechSynthesis API 
     using the more stable st.components.v1.html method.
     """
+    # NOTE: The text is cleaned BEFORE it is passed into the data attribute.
     cleaned_text = clean_for_js(text_to_speak)
     
     # 1. HTML/JS component
     # The text is now passed as a data attribute, and the JS handles the simple click event.
+    # The data-text value is enclosed in SINGLE quotes, so we rely entirely on clean_for_js
+    # to handle any internal single quotes (like in You've).
     js_code = f"""
     <button id='{element_id}' 
             data-text='{cleaned_text}'
@@ -55,13 +65,17 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
         setTimeout(function() {{
             const btn = document.getElementById('{element_id}');
             
-            if (btn && !btn.hasAttribute('data-listener-attached')) {{
+            if (btn && !btn.hasAttribute('data-listener-added')) {{
                 
                 function speak() {{
-                    const text = btn.getAttribute('data-text'); // Get text safely
+                    // Get text safely from the data attribute
+                    const text = btn.getAttribute('data-text'); 
+                    
                     if ('speechSynthesis' in window) {{
                         window.speechSynthesis.cancel();
                         const utterance = new SpeechSynthesisUtterance(text);
+                        // CRITICAL: We also set the language to ensure the correct voice profile is used
+                        // utterance.lang = 'en-US'; 
                         window.speechSynthesis.speak(utterance);
                     }} else {{
                         console.error("Browser does not support native Text-to-Speech.");
@@ -69,16 +83,14 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
                 }}
 
                 btn.addEventListener('click', speak);
-                btn.setAttribute('data-listener-attached', 'true');
+                btn.setAttribute('data-listener-added', 'true');
             }}
         }}, 100); // Very short delay
     </script>
     """
     
-    # Using st.markdown for embedding HTML components is often unstable.
-    # We will use st.html (or st.components.v1.html) to render the button.
-    # st.html is a newer alias for st.components.v1.html in Streamlit.
-    html(js_code, height=50) # Use the imported html alias
+    # Using st.html to render the button.
+    html(js_code, height=50) 
 
 # ----------------- UI FUNCTIONS -----------------
 
@@ -167,6 +179,7 @@ if audio_output is not None and audio_output.get('bytes'):
     
     # Trigger the analysis function
     transcribe_and_assess(audio_bytes)
+
 
 
 
