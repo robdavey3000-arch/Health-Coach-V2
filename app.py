@@ -52,8 +52,6 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
     
     # 1. HTML/JS component
     # The text is now passed as a data attribute, and the JS handles the simple click event.
-    # The data-text value is enclosed in SINGLE quotes, so we rely entirely on clean_for_js
-    # to handle any internal single quotes (like in You've).
     js_code = f"""
     <button id='{element_id}' 
             data-text='{cleaned_text}'
@@ -92,7 +90,58 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
     # Using st.html to render the button.
     html(js_code, height=50) 
 
-# ----------------- UI FUNCTIONS -----------------
+# ----------------- IMAGE ANALYSIS FUNCTION -----------------
+
+def run_image_analysis(uploaded_file):
+    """Handles file reading and calls vision.py for analysis and logs the result."""
+
+    # 1. SECURELY RETRIEVE AND SETUP SECRETS 
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    openai.api_key = OPENAI_API_KEY
+
+    try:
+        # Create a temporary file path needed by the vision.py helper
+        # Since the helper function expects a path, we must write the uploaded file
+        # to the local disk inside the Streamlit container.
+        import os
+        temp_dir = "/tmp"
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+        
+        file_path = os.path.join(temp_dir, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        st.success("Image uploaded. Analyzing...")
+
+        # 2. Assess the image (calls vision.py)
+        with st.spinner("Calling Vision AI..."):
+            assessment = analyze_meal_photo(file_path, HEALTH_PLAN, OPENAI_API_KEY)
+
+        # 3. Display and Speak Output
+        st.subheader("🤖 Meal Assessment")
+        st.info(assessment)
+
+        embed_js_tts(assessment, element_id='image_tts_player')
+        
+        # 4. LOG TO GOOGLE SHEETS
+        try:
+            sheet = get_sheet(SHEET_NAME, st.secrets.to_dict()) 
+            if sheet:
+                today = datetime.date.today().strftime("%Y-%m-%d")
+                add_log_entry(sheet, today, "Image Meal Log", assessment)
+                st.success("Analysis successfully logged to Google Sheets!")
+        except Exception as e:
+            st.warning(f"Logging Error: Could not connect to Google Sheets. Details: {e}")
+
+        # 5. Clean up temporary file
+        os.remove(file_path)
+
+    except Exception as e:
+        st.error(f"An error occurred during image processing: {e}")
+
+
+# ----------------- VOICE ANALYSIS FUNCTION (Remains the same) -----------------
 
 def transcribe_and_assess(audio_bytes):
     """Handles the Whisper transcription and the GPT-4o assessment."""
@@ -141,7 +190,7 @@ def transcribe_and_assess(audio_bytes):
 
         # --- MOBILE AUDIO FIX IMPLEMENTATION (Client-Side JS) ---
         # 4. EMBED CLIENT-SIDE TTS BUTTON
-        embed_js_tts(assessment)
+        embed_js_tts(assessment, element_id='voice_tts_player')
         # -----------------------------------------------------------
 
         # 5. LOG TO GOOGLE SHEETS
@@ -158,27 +207,47 @@ def transcribe_and_assess(audio_bytes):
         st.error(f"An error occurred during AI processing: {e}")
 
 
-# ----------------- STREAMLIT LAYOUT (No major changes needed here) -----------------
+# ----------------- STREAMLIT LAYOUT MANAGER -----------------
 
 st.set_page_config(page_title="Personal Health Agent", layout="centered")
 st.title("🎙️ Daily Progress Log")
-st.markdown("Tap the button below to record your voice summary.")
 
-# The mic_recorder component
-audio_output = mic_recorder(
-    start_prompt="Click to Start Recording",
-    stop_prompt="Click to Stop & Analyze",
-    key='recorder', 
-)
+# Create two tabs for the two different input methods
+voice_tab, photo_tab = st.tabs(["🎙️ Voice Log", "📸 Meal Photo"])
 
-# Check if audio has been recorded
-if audio_output is not None and audio_output.get('bytes'):
-    # 'audio_output' contains a dictionary with the raw audio bytes
-    audio_bytes = audio_output.get('bytes')
-    st.audio(audio_bytes, format='audio/wav') 
-    
-    # Trigger the analysis function
-    transcribe_and_assess(audio_bytes)
+with voice_tab:
+    st.markdown("Tap the button below to record your voice summary.")
+
+    # The mic_recorder component
+    audio_output = mic_recorder(
+        start_prompt="Click to Start Recording",
+        stop_prompt="Click to Stop & Analyze",
+        key='recorder', 
+    )
+
+    # Check if audio has been recorded
+    if audio_output is not None and audio_output.get('bytes'):
+        # 'audio_output' contains a dictionary with the raw audio bytes
+        audio_bytes = audio_output.get('bytes')
+        st.audio(audio_bytes, format='audio/wav') 
+        
+        # Trigger the analysis function
+        transcribe_and_assess(audio_bytes)
+
+with photo_tab:
+    st.markdown("Upload a photo of your meal/snack for nutritional analysis.")
+
+    uploaded_file = st.file_uploader(
+        "Choose an image...", 
+        type=["jpg", "jpeg", "png"],
+        key="image_uploader"
+    )
+
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption='Meal to Analyze', use_column_width=True)
+        if st.button("Analyze Meal Photo", key="analyze_btn"):
+            run_image_analysis(uploaded_file)
+
 
 
 
