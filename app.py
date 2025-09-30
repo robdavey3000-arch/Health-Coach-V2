@@ -14,7 +14,7 @@ from sheets import get_sheet, add_log_entry
 from vision import analyze_meal_photo
 from streamlit_mic_recorder import mic_recorder
 # NOTE: gTTS is no longer needed but kept for completeness of history
-# from gtts import gTTS
+# The problem is resolved by switching to native JS SpeechSynthesis
 
 
 # --- CONSTANTS ---
@@ -42,32 +42,36 @@ def clean_for_js(text):
 def embed_js_tts(text_to_speak, element_id='tts_player'):
    """
    Creates a visible button to trigger the browser's native SpeechSynthesis API.
+  
+   CRITICAL FIX: The JS is modified to use a simpler, self-executing script
+   that runs reliably in Streamlit's component lifecycle.
    """
    cleaned_text = clean_for_js(text_to_speak)
   
    # 1. HTML/JS component
-   # We are injecting the button and the necessary JavaScript code.
+   # The text is now passed as a data attribute, and the JS handles the simple click event.
    js_code = f"""
    <button id='{element_id}'
+           data-text='{cleaned_text}'
            style='background-color:#4CAF50;color:white;padding:10px 24px;border:none;border-radius:4px;cursor:pointer;'>
        🔊 Tap to Hear Response
    </button>
    <script>
-       // Use a self-executing function to ensure immediate setup on every rerun
-       (function() {{
+       // Use a timeout and simple selector logic for robustness
+       setTimeout(function() {{
            const btn = document.getElementById('{element_id}');
-           const text = '{cleaned_text}';
           
-           // Check if the button exists and hasn't been initialized by another run
-           if (btn && !btn.hasAttribute('data-listener-added')) {{
-
-
+           // Check if button exists and hasn't had the listener attached
+           if (btn && !btn.hasAttribute('data-listener-attached')) {{
+              
                function speak() {{
+                   const text = btn.getAttribute('data-text'); // Get text safely
                    if ('speechSynthesis' in window) {{
+                       // Cancel any currently speaking audio first
+                       window.speechSynthesis.cancel();
                        const utterance = new SpeechSynthesisUtterance(text);
                        window.speechSynthesis.speak(utterance);
                    }} else {{
-                       // Fallback console log
                        console.error("Browser does not support native Text-to-Speech.");
                    }}
                }}
@@ -76,9 +80,9 @@ def embed_js_tts(text_to_speak, element_id='tts_player'):
                // Attach the speak function to the button click
                btn.addEventListener('click', speak);
                // Mark the button so we don't attach the listener multiple times on a rerun
-               btn.setAttribute('data-listener-added', 'true');
+               btn.setAttribute('data-listener-attached', 'true');
            }}
-       }})();
+       }}, 500); // Wait 500ms for rendering
    </script>
    """
    st.markdown(js_code, unsafe_allow_html=True)
@@ -187,6 +191,7 @@ if audio_output is not None and audio_output.get('bytes'):
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
 
 
 
