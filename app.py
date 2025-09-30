@@ -46,6 +46,7 @@ def clean_for_js(text):
     AND REMOVES ALL APOSTROPHES to prevent entity decoding failures.
     """
     # FIX: Remove apostrophe entirely as it caused the fatal decoding issue.
+    # NOTE: We rely on this function to clean all text, including AI output.
     text = text.replace("'", "") 
     
     # 2. Escape backslashes for safety
@@ -139,6 +140,8 @@ def run_image_analysis(uploaded_file):
         # 2. Assess the image (calls vision.py)
         with st.spinner("Calling Vision AI..."):
             assessment = analyze_meal_photo(file_path, HEALTH_PLAN, OPENAI_API_KEY)
+            # FIX: Strip apostrophes from AI output immediately
+            assessment = assessment.replace("'", "")
 
         # 3. Display and Speak Output
         st.subheader("🤖 Meal Assessment")
@@ -189,7 +192,8 @@ def get_carb_check_response(carb_answer):
             messages=[{"role": "user", "content": prompt}]
         ).choices[0].message.content
         
-    return response
+    # FIX: Strip apostrophes from AI output immediately
+    return response.replace("'", "")
 
 
 def analyze_initial_log(transcript):
@@ -212,10 +216,11 @@ def analyze_initial_log(transcript):
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}]
         ).choices[0].message.content
-    return response
+        
+    # FIX: Strip apostrophes from AI output immediately
+    return response.replace("'", "")
 
 
-# --- NEW FUNCTION FOR AUDIO TRANSCRIPTION ---
 def transcribe_new_audio(audio_bytes):
     """Safely transcribes new audio input and returns the text."""
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
@@ -227,13 +232,20 @@ def transcribe_new_audio(audio_bytes):
     
     try:
         with st.spinner("Transcribing new details..."):
+            # CRITICAL FIX: Ensure file object is reset to beginning of stream
+            audio_file.seek(0)
+            
             transcript = openai.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file
             ).text
         return transcript
     except Exception as e:
-        st.error(f"Transcription Failed: {e}")
+        # CRITICAL: Log the specific file format error if it occurs
+        if "Unrecognized file format" in str(e):
+             st.error("Audio input was empty or corrupted. Please record your audio and try again.")
+        else:
+             st.error(f"Transcription Failed: {e}")
         return None
         
 
@@ -249,6 +261,9 @@ def handle_transcription_and_state(audio_bytes):
     try:
         # 1. Transcribe the audio
         with st.spinner("Transcribing your voice..."):
+            # CRITICAL FIX: Ensure file object is seeked to start
+            audio_file.seek(0)
+            
             transcript = openai.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file
