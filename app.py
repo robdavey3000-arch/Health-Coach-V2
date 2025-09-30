@@ -124,8 +124,12 @@ def transcribe_and_assess(audio_bytes):
        audio_bytes_tts = speak_output(assessment)
       
        if audio_bytes_tts:
-           # FIX: Wrap the raw bytes in io.BytesIO again before playing for robustness
+           # FIX: Convert raw bytes into an in-memory file object for Streamlit to serve
            tts_audio_io = io.BytesIO(audio_bytes_tts)
+           # CRITICAL: We reset the pointer to 0 to ensure Streamlit reads the full file
+           tts_audio_io.seek(0)
+          
+           # The 'error' you see is likely because the file wasn't fully served/seeked correctly.
            st.audio(tts_audio_io, format='audio/mp3', autoplay=False, start_time=0)
            st.warning("🔊 Tap the play button above to hear the full audio response.")
        # ---------------------------------------
@@ -172,4 +176,6 @@ if audio_output is not None and audio_output.get('bytes'):
   
    # Trigger the analysis function
    transcribe_and_assess(audio_bytes)
+
+
 
