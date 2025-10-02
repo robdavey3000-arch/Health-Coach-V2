@@ -25,13 +25,21 @@ MAX_LOG_LENGTH = 2000
 
 # 1. Retrieve secrets securely
 # NOTE: The Google Sheet secrets must be structured under a single key in secrets.toml, 
-# for example, [google_service_account]
+# for example, [google_service_account] or [gspread]. We check for both.
 try:
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-    GOOGLE_SHEETS_SECRETS = st.secrets["google_service_account"]
+    
+    # Try common credential keys, starting with the one assumed previously
+    if "google_service_account" in st.secrets:
+        GOOGLE_SHEETS_SECRETS = st.secrets["google_service_account"]
+    elif "gspread" in st.secrets: # Check for the alternative common key
+        GOOGLE_SHEETS_SECRETS = st.secrets["gspread"]
+    else:
+        raise KeyError("'google_service_account' or 'gspread' for Google Sheets")
+
 except KeyError as e:
     # Display an error if critical secrets are missing
-    st.error(f"Configuration Error: Missing required secret key: {e}. Please check your `.streamlit/secrets.toml` file.")
+    st.error(f"Configuration Error: Missing required secret key: {e}. Please ensure you have added **OPENAI_API_KEY** and a dedicated key for the Google Service Account (e.g., **[google_service_account]** or **[gspread]**) to your secrets file.")
     st.stop() # Stop the app if secrets are not available
 
 # 2. Initialize the OpenAI client globally (improved modularity)
@@ -431,7 +439,6 @@ def main_layout():
 
 if __name__ == '__main__':
     main_layout()
-
 
 
 
